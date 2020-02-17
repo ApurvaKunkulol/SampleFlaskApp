@@ -59,8 +59,6 @@ def show_db():
 
 @app.route("/insert", methods=["GET", "POST"])
 def insert_rec():
-    import pdb
-    pdb.set_trace()
     if request.method == "POST":
         status = mongo.db.user.insert(request.json)
         if status is not None:
@@ -71,8 +69,6 @@ def insert_rec():
 
 @app.route("/edit", methods=["POST", "PUT"])
 def update_rec():
-    import pdb
-    pdb.set_trace()
     if request.method == "PUT":
         search_param = request.json.get("email")
         if search_param is None or "":
@@ -92,8 +88,6 @@ def update_rec():
 
 @app.route("/delete", methods=["DELETE"])
 def delete_rec():
-    import pdb
-    pdb.set_trace()
     if request.method == "DELETE":
         search_param = request.json.get("email")
         if search_param is None or "":
