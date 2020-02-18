@@ -1,9 +1,11 @@
 from flask import Flask, render_template, request
 from flask_pymongo import PyMongo
 from markupsafe import escape
+import constants
+
 
 app = Flask(__name__)
-app.config["MONGO_URI"] = "mongodb://localhost:27017/mydb"
+app.config["MONGO_URI"] = constants.local_connection_string
 mongo = PyMongo(app)
 
 
