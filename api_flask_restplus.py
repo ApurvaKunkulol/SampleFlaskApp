@@ -2,9 +2,10 @@ import logging
 
 from flask import Flask, request
 from flask_restplus import Api, Resource
-from project_start import mongo
+from .project_start import mongo
 from bson import json_util
-from email_validator import validate_email, EmailNotValidError
+from email_validator import validate_email, EmailNotValidError, EmailSyntaxError
+from werkzeug.exceptions import BadRequest
 
 
 app = Flask(__name__)
@@ -35,6 +36,16 @@ class HelloAPI(Resource):
             In case of an error it'll still return a JSON indicating the unsuccessful status of the operation.
             e.g: {"error": "No user found with the given email."}
         """
+
+        try:
+            validation_status = validate_email(email)
+            email = validation_status.get("email")
+        except EmailNotValidError as email_err:
+            logging.error("Error while validating given email.", exc_info=True)
+            return {"status": "error", "description": "Email is not in proper format."}
+        except Exception as ex:
+            logging.error("Error in email validation.", exc_info=True)
+            return {"status": "error", "description": "Email validation error."}
 
         tmp = mongo.db.user.find({"email": email})
         try:
@@ -74,8 +85,16 @@ class HelloAPI(Resource):
         """
         try:
             if email:
-                validation_status = validate_email(email)
-                email = validation_status.get("email")
+                try:
+                    validation_status = validate_email(email)
+                    email = validation_status.get("email")
+                except EmailNotValidError as email_err:
+                    logging.error("Error while validating given email.", exc_info=True)
+                    return {"status": "error", "description": "Email is not in proper format."}
+                except Exception as ex:
+                    logging.error("Error in email validation.", exc_info=True)
+                    return {"status": "error", "description": "Email validation error."}
+
                 if email:
                     tmp = mongo.db.user.find({"email": email})
                     try:
@@ -83,6 +102,8 @@ class HelloAPI(Resource):
                         updated_info = request.json.get("updated_info")
                         if updated_info:
                             for key, value in updated_info.items():
+                                if key == "email":
+                                    continue
                                 existing_record[key] = value
                             result = mongo.db.user.update({"email": email}, existing_record)
                             if "ok" in result:
@@ -100,9 +121,6 @@ class HelloAPI(Resource):
                                                                   "{}".format(inserted_id)}
             else:
                 return {"status": "error", "description": "Email address not supplied."}
-        except EmailNotValidError as email_err:
-            logging.error("Error while validating email", exc_info=True)
-            return {"status": "error", "description": "Please provide a valid email address.\n{} is not a valid one.".format(email)}
         except Exception as ex:
             logging.error("Error while updating information about {}".format(email), exc_info=True)
             return {"status": "error", "description": "Error while updating information. "
@@ -127,15 +145,15 @@ class HelloAPI(Resource):
                     if deleted_count == 1:
                         return {"status": "success", "description": "Successfully deleted information for user "
                                                                     "{}.".format(email)}
-                    elif deleted_count > 1:
-                        return {"status": "success with warning", "description": "Duplicate records exist for email "
-                                                                                 "{}.".format(email)}
                     elif deleted_count < 1:
                         return {"status": "error", "description": "User does not exist for email {}.".format(email)}
             except EmailNotValidError as email_err:
                 logging.error("Error while validating the email {}".format(email), exc_info=True)
                 return {"status": "error", "description": "Validation Error. There was an error validating the email "
                                                           "{}".format(email)}
+            except Exception as ex:
+                logging.error("Error while deleting info for the email {}".format(email), exc_info=True)
+                return {"status": "error", "description": "Error while deleting info for the email {}".format(email)}
         else:
             return {"status": "error", "description": "Please provide the email of the user whose record to delete."}
 
@@ -168,28 +186,35 @@ class CreateUser(Resource):
         Return:
             JSON containing the status of the operation.
         """
-        if request.json:
-            try:
-                if "email" in request.json:
-                    tmp = mongo.db.user.find({"email": request.json.get("email")})
-                    existing_user = None
-                    try:
-                        existing_user = tmp[0]
-                        return {"status": "error", "description": "User with email {} "
-                                                                  "already exists.".format(request.json.get("email"))}
-                    except IndexError as iderr:
-                        inserted_id = mongo.db.user.insert(request.json)
-                        return {"status": "success", "description": "Successfully inserted record for user. "
-                                                                    "ID: {}".format(inserted_id)}
-                    except Exception as ex:
-                        logging.error("Error while attempting to retrieve existing record", exc_info=True)
+        try:
+            if request.json:
+                try:
+                    if "email" in request.json:
+                        tmp = mongo.db.user.find({"email": request.json.get("email")})
+                        existing_user = None
+                        try:
+                            existing_user = tmp[0]
+                            return {"status": "error", "description": "User with email {} "
+                                                                      "already exists.".format(request.json.get("email"))}
+                        except IndexError as iderr:
+                            inserted_id = mongo.db.user.insert(request.json)
+                            return {"status": "success", "description": "Successfully inserted record for user. "
+                                                                        "ID: {}".format(inserted_id)}
+                        except Exception as ex:
+                            logging.error("Error while attempting to retrieve existing record", exc_info=True)
+                            return {"status": "error",
+                                    "description": "Error while inserting information for the user "
+                                                   "{}.".format(request.json.get("email"))}
+                    else:
                         return {"status": "error",
-                                "description": "Error while inserting information for the user "
-                                               "{}.".format(request.json.get("email"))}
-            except Exception as ex:
-                logging.error("Error while inserting record for email {}.".format(request.json.get("email")),
-                              exc_info=True)
-                return {"status": "error", "description": "Error while inserting record."}
+                                "description": "Please provide email. It is a mandatory field."}
+                except Exception as ex:
+                    logging.error("Error while inserting record for email {}.".format(request.json.get("email")),
+                                  exc_info=True)
+                    return {"status": "error", "description": "Error while inserting record."}
+        except BadRequest as bad_req_err:
+            logging.error("Input error.", exc_info=True)
+            return {"status": "error", "description": "No or bad  input provided."}
 
 
 if __name__ == "__main__":
